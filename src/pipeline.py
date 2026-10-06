@@ -7,6 +7,7 @@ from numba import jit
 from typing import Optional
 from scipy.optimize import minimize
 
+
 # 1. Domain & Model Config 
 @dataclass(frozen=True)
 class MarketNode:
@@ -95,6 +96,8 @@ class AmericanPricingEngine:
         except ValueError:
             return np.nan
 
+
+# 3. Volatility Monitoring & Extra-polation layer
 class SVIVolatilitySurface:
     """Handles SVI surface calibrations, parameterization, and wing smoothing."""
 
@@ -136,7 +139,63 @@ class SVIVolatilitySurface:
         res = minimize(objective, initial_guess, method='L-BFGS-B', bounds=bounds)
         return SVIParameters(*res.x)
 
-# Pricing test
+
+# 4. Ingestion & Pipeline 
+class OptionsDataPipeline:
+    """Manages raw vendor ingestion, data hygiene rules, and validation structures."""
+
+    def __init__(self, ticker_symbol: str, risk_free_rate: float):
+        self.ticker_symbol = ticker_symbol
+        self.r = risk_free_rate
+        self._ticker = yf.Ticker(ticker_symbol)
+
+    def fetch_market_state(self) -> Tuple[float, List[MarketNode]]:
+        """Ingests raw market data frames, processes types, and screens liquid matrices."""
+        live_history = self._ticker.history(period="1d")
+        if live_history.empty:
+            raise ValueError(f"Failed to fetch market spot for symbol: {self.ticker_symbol}")
+
+        S_spot = float(live_history['Close'].iloc[-1])
+        expirations = self._ticker.options
+        today = datetime.now()
+        nodes: List[MarketNode] = []
+
+        for exp_str in expirations[:7]:
+            exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
+            T_years = (exp_date - today).days / 365.25
+            if T_years < (6 / 365.25):
+                continue
+
+            try:
+                opt_chain = self._ticker.option_chain(exp_str)
+                calls = opt_chain.calls
+            except Exception:
+                continue
+
+            # Screen boundaries
+            calls = calls[(calls['strike'] > S_spot * 0.80) & (calls['strike'] < S_spot * 1.20)]
+
+            for _, contract in calls.iterrows():
+                bid, ask, K = float(contract['bid']), float(contract['ask']), float(contract['strike'])
+                if bid <= 0.02 or ask <= 0.02 or (ask - bid) / ask > 0.40:
+                    continue
+
+                C_mid = (bid + ask) / 2.0
+                iv = AmericanPricingEngine.calculate_implied_volatility(C_mid, S_spot, K, T_years, self.r)
+
+                if not np.isnan(iv) and 0.05 < iv < 2.0:
+                    nodes.append(MarketNode(
+                        days_to_expiry=T_years,
+                        strike=K,
+                        log_moneyness=float(np.log(K / S_spot)),
+                        market_price=C_mid,
+                        implied_vol=iv,
+                        total_variance=float((iv ** 2) * T_years)
+                    ))
+
+        return S_spot, nodes
+        
+# Overall Pricing tests
 if __name__ == "__main__":
     S = 100.0  # Spot price
     K = 100.0  # Strike price
