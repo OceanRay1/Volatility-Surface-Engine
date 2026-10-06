@@ -194,7 +194,59 @@ class OptionsDataPipeline:
                     ))
 
         return S_spot, nodes
-        
+
+
+# 5. Validation & Analytics Monitor
+class SurfaceIntegrityMonitor:
+    """Calculates partial finite differences to assert matrix surface viability."""
+
+    def __init__(self, S_spot: float, r: float):
+        self.S_spot = S_spot
+        self.r = r
+
+    def evaluate(self, T_mesh: np.ndarray, k_mesh: np.ndarray, iv_surface: np.ndarray) -> IntegrityReport:
+        """Performs localized edge testing for static butterfly and calendar structures."""
+        K_mesh = self.S_spot * np.exp(k_mesh)
+        call_prices = np.zeros_like(iv_surface)
+
+        for i in range(iv_surface.shape[0]):
+            for j in range(iv_surface.shape[1]):
+                call_prices[i, j] = AmericanPricingEngine.price_call_binomial(
+                    self.S_spot, K_mesh[i, j], T_mesh[i, j], self.r, iv_surface[i, j]
+                )
+
+        dK = np.diff(K_mesh, axis=0)
+        d2C_dK2 = np.zeros_like(call_prices[:-2, :])
+        for j in range(call_prices.shape[1]):
+            d2C_dK2[:, j] = np.diff(np.diff(call_prices[:, j]) / dK[:, j]) / dK[:-1, j]
+
+        dT = np.diff(T_mesh, axis=1)
+        dC_dT = np.diff(call_prices, axis=1) / dT
+
+        butterfly_violations = int(np.sum(d2C_dK2 < -1e-4))
+        calendar_violations = int(np.sum(dC_dT < -1e-4))
+        total_nodes = iv_surface.size
+        alignment_score = ((total_nodes - (butterfly_violations + calendar_violations)) / total_nodes) * 100
+
+        return IntegrityReport(
+            butterfly_violations=butterfly_violations,
+            calendar_violations=calendar_violations,
+            alignment_score=alignment_score,
+            total_nodes=total_nodes
+        )
+
+try:
+    print("Running strict validation test...")
+
+    # We pass extreme inputs to break the model:
+    # S=100, K=100, T=1 year, r=200% (2.0), sigma=1% (0.01), N=1 step
+    AmericanPricingEngine.price_call_binomial(S=100, K=100, T=1.0, r=2.0, sigma=0.01, N=1)
+
+except ValueError as e:
+    print(f"\n[SUCCESS] The validation worked perfectly!")
+    print(f"Error Message: {e}")
+
+
 # Overall Pricing tests
 if __name__ == "__main__":
     S = 100.0  # Spot price
