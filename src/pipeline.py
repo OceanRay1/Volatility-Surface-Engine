@@ -247,6 +247,14 @@ except ValueError as e:
     print(f"Error Message: {e}")
 
 
+# 6. Service Orchestration Pipeline
+class VolatilitySurfaceOrchestrator:
+    """Facilitates structural lifecycles from data fetch through fitting to verification."""
+
+    def __init__(self, ticker_symbol: str, risk_free_rate: float = 0.042):
+        self.pipeline = OptionsDataPipeline(ticker_symbol, risk_free_rate)
+        self.r = risk_free_rate
+        
 # Overall Pricing tests
 if __name__ == "__main__":
     S = 100.0  # Spot price
