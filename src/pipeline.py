@@ -254,6 +254,68 @@ class VolatilitySurfaceOrchestrator:
     def __init__(self, ticker_symbol: str, risk_free_rate: float = 0.042):
         self.pipeline = OptionsDataPipeline(ticker_symbol, risk_free_rate)
         self.r = risk_free_rate
+
+    
+    def execute_lifecycle(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
+        """Runs the generation workflow pipeline from end to end."""
+        # 1. Gather Data Layer State
+        S_spot, market_nodes = self.pipeline.fetch_market_state()
+        if not market_nodes:
+            raise ValueError(f"[FATAL] Data Pipeline returned zero valid filtered nodes for {self.pipeline.ticker_symbol}.")
+
+        df_market = pd.DataFrame([n.__dict__ for n in market_nodes])
+        print(f"[INFO] Operational Ingest Finalized | {len(df_market)} clean market instruments cached.")
+
+        # 2. Setup Spatial Mesh Grids
+        unique_expiries = np.sort(df_market['days_to_expiry'].unique())
+        if len(unique_expiries) == 0:
+            raise ValueError("[FATAL] Spatial mesh generation failed: No unique maturities resolved.")
+
+        grid_k = np.linspace(-0.20, 0.20, 40)
+        grid_T = np.sort(unique_expiries)
+        T_mesh, k_mesh = np.meshgrid(grid_T, grid_k)
+        iv_surface = np.zeros_like(T_mesh)
+
+        # 3. Execution Calibration Engine Loops
+        last_w: Optional[np.ndarray] = None
+        for idx, t_expiry in enumerate(grid_T):
+            slice_df = df_market[df_market['days_to_expiry'] == t_expiry].sort_values(by='log_moneyness')
+            if len(slice_df) < 4:
+                print(f"[WARN] Skipping expiry slice {t_expiry:.4f} due to insufficient liquid options counts.")
+                continue
+
+            svi_params = SVIVolatilitySurface.fit_slice(
+                slice_df['log_moneyness'].values, slice_df['total_variance'].values,
+                grid_k=grid_k, previous_fitted_w=last_w
+            )
+            fitted_w = SVIVolatilitySurface.total_variance(grid_k, svi_params)
+
+            # Smooth Wing Asymptotics Extrapolation Strategy
+            min_market_k, max_market_k = slice_df['log_moneyness'].min(), slice_df['log_moneyness'].max()
+            fitted_w[grid_k < min_market_k] = SVIVolatilitySurface.total_variance(min_market_k, svi_params)
+            fitted_w[grid_k > max_market_k] = SVIVolatilitySurface.total_variance(max_market_k, svi_params)
+            fitted_w = np.maximum(1e-5, fitted_w)
+
+            last_w = fitted_w.copy()
+            iv_surface[:, idx] = np.sqrt(fitted_w / t_expiry)
+
+        # 4. Assert Risk & Arbitrage Matrix Metrics
+        monitor = SurfaceIntegrityMonitor(S_spot, self.r)
+        report = monitor.evaluate(T_mesh, k_mesh, iv_surface)
+
+        self._print_production_report(report)
+        return T_mesh, k_mesh, iv_surface, df_market
+
+    def _print_production_report(self, r: IntegrityReport) -> None:
+        """Formal reporting component format layout output."""
+        print("\n" + "═"*60)
+        print("System Volatility Surface Integrity Report")
+        print("═"*60)
+        print(f"» Static Butterfly Violations  : {r.butterfly_violations:<4} grid nodes")
+        print(f"» Calendar Horizon Violations  : {r.calendar_violations:<4} grid nodes")
+        print(f"» Structural Alignment Score   : {r.alignment_score:.2f}%")
+        print(f"» Total Verified Matrix Assets : {r.total_nodes} coordinates evaluated")
+        print("═"*60 + "\n")
         
 # Overall Pricing tests
 if __name__ == "__main__":
