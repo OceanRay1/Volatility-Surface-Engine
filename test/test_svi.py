@@ -38,7 +38,7 @@ def run_benchmark():
     S, K, T, r, sigma, N = 100.0, 100.0, 1.0, 0.04, 0.20, 300
     iterations = 200
 
-    print("⚡ Warmup run for Numba JIT (triggering compilation)...")
+    print("Warmup run for Numba JIT (triggering compilation)...")
     _ = AmericanPricingEngine.price_call_binomial(S, K, T, r, sigma, N=N)
 
     print(f"Running benchmark across {iterations} evaluations (N={N} tree depth)...")
@@ -65,9 +65,9 @@ def run_benchmark():
     time_saved_pct = ((py_time - jit_time) / py_time) * 100
     speedup_ratio = py_time / jit_time
 
-    print("\n" + "=" * 60)
-    print("Computing Benchmark Results")
     print("=" * 60)
+    print("Computing Benchmark Results")
+    print("-" * 60)
     print(f"Baseline Pure Python Throughput : {py_throughput:.2f} ops/sec")
     print(f"Numba JIT Accelerated Throughput: {jit_throughput:.2f} ops/sec")
     print("-" * 60)

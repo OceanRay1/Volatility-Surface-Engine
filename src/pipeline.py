@@ -7,7 +7,6 @@ from numba import jit
 from typing import Optional
 from scipy.optimize import minimize
 
-
 # 1. Domain & Model Config 
 @dataclass(frozen=True)
 class MarketNode:

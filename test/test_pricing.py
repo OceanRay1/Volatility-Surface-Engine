@@ -36,17 +36,25 @@ def test_binomial_convergence_to_black_scholes(S, K, T, r, sigma):
 
 def test_binomial_edge_cases():
     """Verify boundaries, immediate expirations, and zero-volatility conditions."""
-    # Immediate expiry (T=0)
-    assert AmericanPricingEngine.price_call_binomial(105.0, 100.0, 0.0, 0.04, 0.20) == pytest.approx(5.0)
+    # Immediate expiry (T=0) - pass N=300 explicitly
+    assert AmericanPricingEngine.price_call_binomial(105.0, 100.0, 0.0, 0.04, 0.20, N=300) == pytest.approx(5.0)
 
-    # Zero volatility baseline
-    assert AmericanPricingEngine.price_call_binomial(100.0, 100.0, 1.0, 0.0, 0.0) == pytest.approx(0.0)
+    # Zero volatility baseline - pass N=300 explicitly
+    assert AmericanPricingEngine.price_call_binomial(100.0, 100.0, 1.0, 0.0, 0.0, N=300) == pytest.approx(0.0)
 
 def test_engine_compilation_status():
     """Ensure that the engine method runs as a compiled Numba dispatcher."""
-    # Retrieve the inner static method function target
-    target_func = AmericanPricingEngine.price_call_binomial
+    # Trigger JIT compilation first so dispatcher metadata is populated
+    _ = AmericanPricingEngine.price_call_binomial(100.0, 100.0, 1.0, 0.04, 0.20, N=100)
     
-    # Assert the method contains Numba compilation dispatcher signatures
+    # Retrieve the inner static method function target 
+    target_func = getattr(AmericanPricingEngine.price_call_binomial, "__func__", AmericanPricingEngine.price_call_binomial)
+    
+    # Assert the method contains Numba compilation dispatcher signatures or py_func
     assert hasattr(target_func, "signatures") or hasattr(target_func, "py_func"), \
         "Performance optimization failure: Target engine function is missing JIT compiler properties."
+
+if __name__ == "__main__":
+    print("Running American Pricing Engine test suite...")
+    # Programmatically invokes pytest on the current script file
+    sys.exit(pytest.main([__file__, "-v"]))
