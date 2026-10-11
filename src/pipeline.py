@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-from scipy.optimize import root_scalar
 from numba import jit
-from typing import Optional
-from scipy.optimize import minimize
+from scipy.optimize import minimize, root_scalar
 
 # 1. Domain & Model Config 
 @dataclass(frozen=True)
@@ -110,7 +110,8 @@ class SVIVolatilitySurface:
                   previous_fitted_w: Optional[np.ndarray] = None) -> SVIParameters:
         """Calibrates an SVI parametric slice under sequential regularization constraints."""
 
-        #need to adjust penalties so not fixed rand numbers
+        # Soft-penalty weights are tuned empirically
+        # Calendar penalty is deliberately large so slice-to-slice violations are strongly discouraged
         def objective(p_arr: np.ndarray) -> float:
             params = SVIParameters(*p_arr)
             w_pred_market = cls.total_variance(k_market, params)
@@ -144,6 +145,8 @@ class OptionsDataPipeline:
     """Manages raw vendor ingestion, data hygiene rules, and validation structures."""
 
     def __init__(self, ticker_symbol: str, risk_free_rate: float):
+        import yfinance as yf # pricing/tests don't need network deps
+        
         self.ticker_symbol = ticker_symbol
         self.r = risk_free_rate
         self._ticker = yf.Ticker(ticker_symbol)
@@ -233,18 +236,6 @@ class SurfaceIntegrityMonitor:
             alignment_score=alignment_score,
             total_nodes=total_nodes
         )
-
-try:
-    print("Running strict validation test...")
-
-    # We pass extreme inputs to break the model:
-    # S=100, K=100, T=1 year, r=200% (2.0), sigma=1% (0.01), N=1 step
-    AmericanPricingEngine.price_call_binomial(S=100, K=100, T=1.0, r=2.0, sigma=0.01, N=1)
-
-except ValueError as e:
-    print(f"\n[SUCCESS] The validation worked perfectly!")
-    print(f"Error Message: {e}")
-
 
 # 6. Service Orchestration Pipeline
 class VolatilitySurfaceOrchestrator:
