@@ -3,3 +3,4 @@ pandas
 scipy
 numba
 pytest
+yfinance
