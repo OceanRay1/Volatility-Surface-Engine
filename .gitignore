@@ -3,10 +3,16 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Environment folders
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment folders and local variables
 .venv/
 venv/
 env/
+.env
 
 # OS generated files
 .DS_Store
